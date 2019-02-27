@@ -1,0 +1,172 @@
+---
+title: "Tree-Based Methods on Prediction of Tropical Storms"
+author: "Zoe Chen"
+date: "02/25/2019"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+# 0. Introduction
+For this data analysis case, we will focus on tree-based models to analyze a climate data set from Mann and Sabbatelli 2007. Basically, we will build regression trees to predict the number of tropical storms and classification trees to classify high frequency storms from others. Furthermore, we will build random forests and compare their performance with single-tree models.
+
+# 1. Importing Data set
+Let's import the data set first and take a look at it. This data set contains 113 rows, each row represents each year's data. Besides, it has totally 6 columns. In this case, the response variable is ```Storms```(the number of tropical storms) and the predictors are ```Temp```(sea surface temperature), ```ENSO```(the EL Nino Index), ```NAO```(North Atlantic Oscillator index).
+
+```{r}
+df = read.csv('./TCcount.csv')
+dim(df)
+colnames(df) = c('Year', 'Storms', 'Landfalling', 'Temp', 'ENSO', 'NAO')
+head(df)
+```
+
+# 2. Splitting Data Set
+Next, we want to randomly split our original data set into two parts, specifically 80% of it as the training set and the other 20% as the test set. Thus, now we have ```train.df``` and ```test.df``` ready at hand. 
+
+```{r}
+set.seed(111)
+rows = sample(nrow(df), size = .8*nrow(df), replace = F)
+train.df = df[rows,]
+test.df = df[-rows,]
+```
+
+# 3. Building Regression Tree
+Firstly, we want to use our training set to fit a single-tree model using the R function ```rpart```. Here, the formula is just like what we mentioned above. Since it's a regression problem, we set the ```method``` argument to be ```anova```. 
+
+After we fit the model, we can use ```summary```, ```rpart.plot```, ```printcp``` to take a deeper look at the fitted tree model. In this model, it has totally 5 splits and the most important variable is ```NAO```.
+
+```{r}
+library('rpart')
+tree = rpart(Storms~Temp+ENSO+NAO, data=train.df, method='anova')
+summary(tree)
+```
+
+```{r}
+library('rpart.plot')
+rpart.plot(tree)
+```
+
+```{r}
+printcp(tree)
+```
+
+# 4. Pruning Tree
+Most of the arguments in the first tree model are set as function default values. However, sometimes it would still be too complex. Thus here we would want to prune this model a little bit using R function ```prune```, with ```cp``` which has the minimum cross validation error value. 
+
+From the model result we see that the pruned tree indeed becomes simpler with less decision nodes. Now it only has 4 splits.
+
+```{r}
+tree.pruned = prune(tree, cp=tree$cptable[which.min(tree$cptable[,'xerror']),'CP'])
+summary(tree.pruned)
+```
+
+```{r}
+rpart.plot(tree.pruned)
+```
+
+# 5. Comparing Training Errors and Test Errors
+Now we not only want to compare the performance of original tree and pruned tree, we also want to understand the difference between in-sample errors and out-sample errors. First, from the below table we can see that the pruned model's RMSE is higher than original tree model's, meaning that the pruned tree may be too simple, thus resulting in a higher bias. Second, we also see that the in-sample errors are lower than out-sample errors. It is reasonable since the model doesn't see the data in the test set before, it will have higher errors in test set.
+
+```{r}
+library(MLmetrics)
+train.prediction.1 = predict(tree, train.df)
+test.prediction.1 = predict(tree, newdata=test.df)
+train.prediction.2 = predict(tree.pruned, train.df)
+test.prediction.2 = predict(tree.pruned, newdata=test.df)
+
+training.rmse = c(RMSE(train.df$Storms, train.prediction.1), RMSE(train.df$Storms, train.prediction.2))
+test.rmse = c(RMSE(test.df$Storms, test.prediction.1), RMSE(test.df$Storms, test.prediction.2))
+model = c('tree', 'pruned tree')
+table.1 = data.frame(model, training.rmse, test.rmse)
+table.1
+```
+
+# 6. Building Classification Tree
+Next, we add a column to the data set which is 1 if the number of tropical storms is greater than the 80th percentile value of the data and 0 otherwise. Then we perform a 10-fold cross validation in which we build a classification tree to predict whether this new variable is a 1 or 0.  
+
+```{r}
+value = quantile(df$Storms, 0.8)
+train.df$Status = ifelse(train.df$Storms >= value, 1, 0)
+test.df$Status = ifelse(test.df$Storms >= value, 1, 0)
+
+set.seed(121)
+k = 10
+train.df$Fold = sample(1:k, size=nrow(train.df), replace=T)
+head(train.df)
+```
+
+In each fold, we not only fit the model, but also record the training accuracy and validation accuracy. From the below table and accuracy plot, we can see that the training accuracy is much more stable than validation accuracy. Moreover, we find that in most of time the validation accuracy is lower than training accuracy. Also, the average validation accuracy in these 10 iterations is also lower than the average of training accuracy. 
+
+```{r}
+train.acc = c()
+val.acc = c()
+
+for (i in 1:k){
+  train = train.df[-which(train.df$Fold==i),]
+  val = train.df[which(train.df$Fold==i),]
+  tree = rpart(Status ~ Temp+ENSO+NAO, data=train, method='class')
+  train.acc = c(train.acc, Accuracy(predict(tree, type='class'), train$Status))
+  val.acc = c(val.acc, Accuracy(predict(tree, newdata=val, type='class'), val$Status))
+}
+
+itr = c(1:10)
+acc.df = data.frame(itr, train.acc, val.acc)
+acc.df
+
+```
+
+
+```{r}
+library(ggplot2)
+ggplot(acc.df, aes(itr)) + geom_line(aes(y=train.acc, colour='Training accuracy'), size=1) + geom_line(aes(y=val.acc, colour='Validation accuracy'), size=1) + labs(title='Accuracy Plot', x='Iteration', y='Accuracy', color='Legend') + scale_x_continuous(breaks=1:10)
+```
+
+```{r}
+sum(train.acc)/length(train.acc)
+sum(val.acc)/length(val.acc)
+```
+
+
+# 7. Building Random Forests
+So far, we have built regression trees and classification trees. However, this kind of trees has low bias but high variance. Thus, in this part we want to further build random forest models and compare their performance with single tree models. In R, we can use ```randomForest``` to build the random forest models. 
+
+In each fold iteration, we build two models, one is just a single regression tree and the other one is a random forest. From the result we see that the random forest's RMSE are usually lower than single-tree's RMSE. This show that random forests is reducing the variance by aggregating different tree models and thus have a better performance.
+
+```{r}
+library(randomForest)
+tree.rmse = c()
+forest.rmse = c()
+
+for (i in 1:k){
+  train = train.df[-which(train.df$Fold==i),]
+  val = train.df[which(train.df$Fold==i),]
+  tree = rpart(Storms~Temp+ENSO+NAO, data=train)
+  forest = randomForest(Storms~Temp+ENSO+NAO, data=train, ntree=500)
+  tree.rmse = c(tree.rmse, RMSE(val$Storms, predict(tree, newdata=val)))
+  forest.rmse = c(forest.rmse, RMSE(val$Storms, predict(forest, newdata=val)))
+}
+
+acc.df.2 = data.frame(itr, tree.rmse, forest.rmse)
+acc.df.2
+
+```
+
+```{r}
+ggplot(acc.df.2, aes(itr)) + geom_line(aes(y=tree.rmse, colour='Single Tree RMSE'), size=1) + geom_line(aes(y=forest.rmse, colour='Random Forest RMSE'), size=1) + labs(title='RMSE Plot', x='Iteration', y='RMSE', color='Legend') + scale_x_continuous(breaks=1:10)
+```
+
+```{r}
+sum(tree.rmse)/length(tree.rmse)
+sum(forest.rmse)/length(forest.rmse)
+```
+
+Lastly, we just build the random forest model and then compute the test RMSE to make a final evaluation of this model.
+
+```{r}
+rforest = randomForest(Storms~Temp+ENSO+NAO, data=train.df)
+# training RMSE
+RMSE(train.df$Storms, predict(rforest))
+# test RMSE
+RMSE(test.df$Storms, predict(rforest, newdata=test.df))
+```
+
