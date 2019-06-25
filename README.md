@@ -1,9 +1,23 @@
 # Introduction
-This repository will contain different data science projects with R.
+This repository contains different predictive modeling projects in R.
+
+# Project Processes
+* EDA
+* Feature selection
+* Model building
+* Model selection
+* Inference
+
+# Algorithms
+* Regression
+* Stepwise Regression
+* Random Forest
+* Gradient Boosting
+* Generalized Additive Models (GAM)
+* Multivariate Adaptive Regression Splines (MARS)
+* Bayesian Additive Regression Trees (BART)
+* Support Vector Machine (SVM)
 
 # Projects List
-* Regression Analysis of Health Insurance Charges
-* Regression Analysis of Creative Jobs in US
-* Tree-Based Methods on Tropical Storms Prediction
-* GAM on Tuition Prediction
-* Eletricity Sales Prediction (Using regression, stepwise method, lasso regression, GAM and tree-based method)
+* Prediction of Electricity Consumption
+* Predictinn of Dengue Fever Cases
